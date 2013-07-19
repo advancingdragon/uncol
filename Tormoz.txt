@@ -45,7 +45,7 @@ ometa Tormoz {
     inMem :r = ?(this.memRegs.hasOwnProperty(r[0] + r[1].toString())),
 
     statement = ['SET' [literal:value] reg:dest]
-                ( outOfRange(value) inMem(dest)
+                ( inMem(dest)
                   emit("movq", ["$" + value.toString(), "%rax"])
                   emit("movq", ["%rax", this.emitReg(dest)])
                 | otherwise
@@ -91,13 +91,13 @@ ometa Tormoz {
 
               | ['CALL' [globalLabel:name reg*:args] reg?:ret]
                   processArgs(args)
-                  emit("call", name)
+                  emit("call", [name])
 
-              | ['RET' [reg:result]]
+              | ['RETURN' [reg:result]]
                   emit("movq", [this.emitReg(result), "%rax"])
                   emit("ret", [(this.argCount*8).toString()])
               
-              | ['LABEL' [localLabel:name]]
+              | ['LABEL' localLabel:name]
                   emitLabel("_" + name),
 
     function = ['FUNCTION' globalLabel:name [reg*:args]
@@ -115,7 +115,8 @@ Tormoz.ops = {
     "XOR": "xorq",
     "DIV": "idivq",
     "REM": "idivq",
-    "COMP,JUMP<": "jlt"
+    "COMP,JUMP<": "jlt",
+    "COMP,JUMP>": "jgt"
 };
 
 Tormoz.output = "";
@@ -160,8 +161,8 @@ Tormoz.emitReg = function(r) {
 };
 
 Tormoz.processArgs = function(args) {
-    for (var i = args.length; i >= 0; i--) {
-        this.emit("pushq", this.emitReg(args[i]));
+    for (var i = args.length-1; i >= 0; i--) {
+        this.emit("pushq", [this.emitReg(args[i])]);
     }
 };
 
@@ -170,6 +171,7 @@ Tormoz.emitLabel = function(name) {
 };
 
 Tormoz.loadArgs = function(args) {
+    this.argCount = args.length;
     for (var i = 0; i < args.length; i++) {
         var addr_str = ((1+i)*8).toString();
         this.emit("movq", [addr_str + "(%rsp)", this.emitReg(args[i])]);
