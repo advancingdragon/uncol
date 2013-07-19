@@ -1,0 +1,179 @@
+ometa Tormoz {
+    // assumes type checking already done
+    // HANDLING OF DIFFERENT TYPES
+    // all integer operations are done on 64-bit registers,
+    // loads and stores sign extend their values
+    // unsigned multiplies, divides, and modulos then
+    // zero-extend their arguments
+    // ALTERNATIVELY
+    // all integer operations could be done on registers
+    // of the same type as the operation type
+    // TODO
+    // add predicates to test for floating-point registers
+    // support for floating point registers
+
+    arithmeticLogic = 'ADD'
+                    | 'SUB'
+                    | 'MUL'
+                    | 'AND'
+                    | 'OR'
+                    | 'XOR',
+
+    // TODO
+    // add unsigned operations
+
+    multiplyDivide = 'DIV',
+
+    remainder = 'REM',
+
+    compare = 'COMP'
+            | 'UCOMP',
+
+    jumpCond = 'JUMP='
+             | 'JUMP<>'
+             | 'JUMP<='
+             | 'JUMP>='
+             | 'JUMP<'
+             | 'JUMP>',
+
+    reg         = [ string number ],
+    literal     = number,
+    localLabel  = string,
+    globalLabel = string,
+
+    inReg :r = ?(this.regRegs.hasOwnProperty(r[0] + r[1].toString())),
+    inMem :r = ?(this.memRegs.hasOwnProperty(r[0] + r[1].toString())),
+
+    statement = ['SET' [literal:value] reg:dest]
+                ( outOfRange(value) inMem(dest)
+                  emit("movq", ["$" + value.toString(), "%rax"])
+                  emit("movq", ["%rax", this.emitReg(dest)])
+                | otherwise
+                  emit("movq", ["$" + value.toString(), this.emitReg(dest)]) )
+
+              | ['COPY' [reg:src] reg:dest]
+                ( inMem(src) inMem(dest)
+                  emit("movq", [this.emitReg(src), "%rax"])
+                  emit("movq", ["%rax", this.emitReg(src)])
+                | otherwise
+                  emit("movq", [this.emitReg(src), this.emitReg(dest)]) )
+
+              | [arithmeticLogic:i [reg:src1 reg:src2] reg:dest]
+                ( inReg(src1) inReg(dest) ?(src1[0] === dest[0] && src1[1] === dest[1])
+                  emit(this.emitOp(i), [this.emitReg(src2), this.emitReg(dest)])
+                | inReg(dest)
+                  emit("movq", [this.emitReg(src1), this.emitReg(dest)])
+                  emit(this.emitOp(i), [this.emitReg(src2), this.emitReg(dest)])
+                | inMem(dest)
+                  emit("movq", [this.emitReg(src1), "%rax"])
+                  emit(this.emitOp(i), [this.emitReg(src2), "%rax"])
+                  emit("movq", ["%rax", this.emitReg(dest)]) )
+
+              | [multiplyDivide:i [reg:src1 reg:src2] reg:dest]
+                  emit("movq", [this.emitReg(src1), "%rax"])
+                  emit(this.emitOp(i), [this.emitReg(src2)])
+                  emit("movq", ["%rax", this.emitReg(dest)])
+
+              | [remainder:i [reg:src1 reg:src2] reg:dest]
+                  emit("movq", [this.emitReg(src1), "%rax"])
+                  emit(this.emitOp(i), [this.emitReg(src2)])
+                  emit("movq", ["%rdx", this.emitReg(dest)])
+
+              | [compare:iCompare [reg:src1 reg:src2]]
+                [jumpCond:iJump [localLabel:target]]
+                ( inMem(src1) inMem(src2)
+                  emit("movq", [this.emitReg(src1), "%rax"])
+                  emit("cmpq", [this.emitReg(src2), "%rax"])
+                  emit(this.emitOp([iCompare, iJump].join(",")), [target])
+                | otherwise
+                  emit("cmpq", [this.emitReg(src2), this.emitReg(src1)])
+                  emit(this.emitOp([iCompare, iJump].join(",")), [target]) )
+
+              | ['CALL' [globalLabel:name reg*:args] reg?:ret]
+                  processArgs(args)
+                  emit("call", name)
+
+              | ['RET' [reg:result]]
+                  emit("movq", [this.emitReg(result), "%rax"])
+                  emit("ret", [(this.argCount*8).toString()])
+              
+              | ['LABEL' [localLabel:name]]
+                  emitLabel("_" + name),
+
+    function = ['FUNCTION' globalLabel:name [reg*:args]
+                 emitLabel(name)
+                 loadArgs(args)
+                 [statement*]] alert(this.output)
+}
+
+Tormoz.ops = {
+    "ADD": "addq",
+    "SUB": "subq",
+    "MUL": "imulq",
+    "AND": "andq",
+    "OR": "orq",
+    "XOR": "xorq",
+    "DIV": "idivq",
+    "REM": "idivq",
+    "COMP,JUMP<": "jlt"
+};
+
+Tormoz.output = "";
+
+Tormoz.regRegs = {
+    "i1": "%rbx",
+    "i2": "%rsi",
+    "i3": "%rdi"
+};
+
+Tormoz.memRegs = {};
+
+Tormoz.succeed = function() {
+    return true;
+};
+
+Tormoz.otherwise = Tormoz.succeed;
+
+Tormoz.alert = function(msg) {
+    alert(msg);
+};
+
+Tormoz.emit = function(op, args) {
+    if (args.length > 0) {
+        this.output += " " + op + " " + args.join(",") + "\n";
+    } else {
+        this.output += " " + op + "\n";
+    }
+};
+
+Tormoz.emitOp = function(i) {
+    return this.ops[i];
+};
+
+Tormoz.emitReg = function(r) {
+    var s = r[0] + r[1].toString()
+    if (this.regRegs.hasOwnProperty(s)) {
+        return this.regRegs[s];
+    } else if (this.memRegs.hasOwnProperty(s)) {
+        return this.memRegs[s];
+    }
+};
+
+Tormoz.processArgs = function(args) {
+    for (var i = args.length; i >= 0; i--) {
+        this.emit("pushq", this.emitReg(args[i]));
+    }
+};
+
+Tormoz.emitLabel = function(name) {
+    this.output += name + ":" + "\n";
+};
+
+Tormoz.loadArgs = function(args) {
+    for (var i = 0; i < args.length; i++) {
+        var addr_str = ((1+i)*8).toString();
+        this.emit("movq", [addr_str + "(%rsp)", this.emitReg(args[i])]);
+    }
+};
+
+Tormoz.match(["FUNCTION", "foo", [["i", 1]], [["SUB", [["i", 1], ["i", 2]], ["i", 1]]]], "function");

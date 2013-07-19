@@ -1,0 +1,56 @@
+ometa UncolParser {
+    // scanner
+
+    // token :cs = spaces seq(cs),
+
+    instruction = spaces letter+:cs
+                  -> (cs.join("")),
+
+    condition = "=" | "<>" | "<=" | ">=" | "<" | ">",
+
+    integer = digit+:cs
+              -> (parseInt(cs.join(""))),
+
+    regType = 'b' | 's' | 'i' | 'l' | 'w' | 'f' | 'd',
+    reg     = spaces regType:t integer:n
+              -> [t, n],
+
+    literal = spaces integer:value
+              -> value,
+
+    idFirst = letter | '_' | '$',
+    idRest  = idFirst | digit,
+    id      = idFirst:first idRest*:rest
+              -> (first + rest.join("")),
+
+    localLabel  = spaces '.' id:name
+                  -> name,
+    globalLabel = spaces '@' id:name
+                  -> name,
+
+    // parser
+
+    operand = reg | literal | localLabel | globalLabel,
+
+    statement = "JUMP" condition:c localLabel:target
+                -> ["JUMP" + c, [target]]
+              | instruction:i operand*:src "->" reg:dest
+                -> [i, src, dest]
+              | instruction:i operand*:src
+                -> [i, src]
+              | localLabel:name ":"
+                -> ["LABEL", name],
+
+    function = globalLabel:name "(" reg*:args ")" ":"
+               statement*:statements
+               -> ["FUNCTION", name, args, statements]
+}
+
+var test = "  @foo (i1): " +
+           "COPY i1 -> i2 " +
+           "ADD i1 i2 -> i1 " +
+           ".dongs: SUB f2 f3 -> f1 " +
+           "COMP f1 f3 " +
+           "JUMP<= .dongs";
+
+UncolParser.matchAll(test, "function");
